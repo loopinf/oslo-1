@@ -1,4 +1,4 @@
-from typing import Optional, Callable
+from typing import List, Optional, Callable
 
 from oslo.torch.nn.parallel.data_parallel._ddp.distributed_data_parallel import (
     DistributedDataParallel,
@@ -18,7 +18,7 @@ def DataParallel(
     optimizer,
     parallel_context: ParallelContext,
     zero_stage: int = 0,
-    auto_wrap_policy: Optional[Callable] = None,
+    transformer_wrap_layers: Optional[List] = None,
     mixed_precision: Optional[MixedPrecision] = None,
     cpu_offload: bool = False,
 ):
@@ -33,41 +33,47 @@ def DataParallel(
             module=module,
             parallel_context=parallel_context,
             sharding_strategy=ShardingStrategy.NO_SHARD,
-            auto_wrap_policy=auto_wrap_policy,
+            transformer_wrap_layers=transformer_wrap_layers,
             mixed_precision=mixed_precision,
             cpu_offload=CPUOffload(offload_params=cpu_offload),
         )
         optimizer = ZeroRedundancyOptimizer(
             module.parameters(),
             optimizer_class=optimizer.__class__,
-            lr=optimizer.param_groups[0]["lr"],
+            **optimizer.defaults,
         )
         return module, optimizer
 
     elif zero_stage == 2:
-        return (
-            FullyShardedDataParallel(
-                module=module,
-                parallel_context=parallel_context,
-                sharding_strategy=ShardingStrategy.SHARD_GRAD_OP,
-                auto_wrap_policy=auto_wrap_policy,
-                mixed_precision=mixed_precision,
-                cpu_offload=CPUOffload(offload_params=cpu_offload),
-            ),
-            optimizer,
+        module = FullyShardedDataParallel(
+            module=module,
+            parallel_context=parallel_context,
+            sharding_strategy=ShardingStrategy.SHARD_GRAD_OP,
+            transformer_wrap_layers=transformer_wrap_layers,
+            mixed_precision=mixed_precision,
+            cpu_offload=CPUOffload(offload_params=cpu_offload),
         )
+        optimizer = ZeroRedundancyOptimizer(
+            module.parameters(),
+            optimizer_class=optimizer.__class__,
+            **optimizer.defaults,
+        )
+        return module, optimizer
 
     elif zero_stage == 3:
-        return (
-            FullyShardedDataParallel(
-                module=module,
-                parallel_context=parallel_context,
-                sharding_strategy=ShardingStrategy.FULL_SHARD,
-                auto_wrap_policy=auto_wrap_policy,
-                mixed_precision=mixed_precision,
-                cpu_offload=CPUOffload(offload_params=cpu_offload),
-            ),
-            optimizer,
+        module = FullyShardedDataParallel(
+            module=module,
+            parallel_context=parallel_context,
+            sharding_strategy=ShardingStrategy.FULL_SHARD,
+            transformer_wrap_layers=transformer_wrap_layers,
+            mixed_precision=mixed_precision,
+            cpu_offload=CPUOffload(offload_params=cpu_offload),
         )
+        optimizer = ZeroRedundancyOptimizer(
+            module.parameters(),
+            optimizer_class=optimizer.__class__,
+            **optimizer.defaults,
+        )
+        return module, optimizer
     else:
         raise ValueError("param `zero_stage` must be one of the 0, 1, 2, 3.")
